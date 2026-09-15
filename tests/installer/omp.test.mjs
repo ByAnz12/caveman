@@ -135,3 +135,32 @@ test('omp uninstall uses plugin lifecycle and removes prepared package', () => {
     fs.rmSync(home, { recursive: true, force: true });
   }
 });
+test('omp extension keeps caveman active beyond the first prompt', async () => {
+  const home = freshHome();
+  try {
+    const r = runInstaller(['--only', 'omp'], home);
+    assert.notEqual(r.status, 2, `argv error: ${r.stderr}`);
+    const pluginDir = path.join(home, OMP_PLUGIN_DIR);
+    const indexPath = path.join(pluginDir, 'index.js');
+    const src = fs.readFileSync(indexPath, 'utf8');
+    assert.match(src, /before_agent_start/, 'extension never re-injects after first prompt');
+    assert.match(src, /Respond terse like smart caveman/, 'ruleset not embedded in extension');
+    const { createRequire } = await import('node:module');
+    const factory = createRequire(import.meta.url)(indexPath);
+    const handlers = {};
+    factory({ on: (event, fn) => { handlers[event] = fn; } });
+    assert.ok(handlers.session_start, 'session_start handler missing');
+    assert.ok(handlers.before_agent_start, 'before_agent_start handler missing');
+    let status;
+    await handlers.session_start({}, { ui: { setStatus: (k, v) => { status = [k, v]; } } });
+    assert.deepEqual(status, ['caveman', 'CAVEMAN']);
+    const first = await handlers.before_agent_start({ systemPrompt: ['base'] });
+    assert.match(first.systemPrompt.join('\n'), /Respond terse like smart caveman/, 'first prompt lost ruleset');
+    const second = await handlers.before_agent_start({ systemPrompt: ['base'] });
+    assert.match(second.systemPrompt.join('\n'), /Respond terse like smart caveman/, 'second prompt lost ruleset');
+    const retry = await handlers.before_agent_start({ systemPrompt: first.systemPrompt });
+    assert.equal(retry, undefined, 'retry re-appended duplicate ruleset');
+  } finally {
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+});

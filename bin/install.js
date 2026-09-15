@@ -839,10 +839,17 @@ const OMP_INDEX_FILE = 'index.js';
 const OMP_PACKAGE_VERSION = '0.1.0';
 const OMP_PLUGIN_DESCRIPTION = 'Caveman terse communication mode for Oh My Pi';
 const OMP_RULE_COUNT = 1;
-const OMP_EXTENSION_SOURCE = `'use strict';
+// OMP has no hook files for plugins; persistence (issue #743 — caveman must
+// stay active beyond the first prompt) comes from re-appending the ruleset to
+// the system prompt on every before_agent_start, mirroring packages/pi-extension.
+// Rule text is embedded at install time: no runtime fs reads, no second source.
+function ompExtensionSource(ruleBodyText) {
+  const ruleLiteral = JSON.stringify(ruleBodyText);
+  return `'use strict';
 
 const STATUS_LABEL = 'caveman';
 const STATUS_TEXT = 'CAVEMAN';
+const RULE = ${ruleLiteral};
 
 module.exports = function cavemanPlugin(pi) {
   if (!pi || typeof pi.on !== 'function') return;
@@ -851,8 +858,15 @@ module.exports = function cavemanPlugin(pi) {
       ctx.ui.setStatus(STATUS_LABEL, STATUS_TEXT);
     }
   });
+  pi.on('before_agent_start', async (event) => {
+    const base = event && Array.isArray(event.systemPrompt) ? event.systemPrompt : [];
+    const entry = 'CAVEMAN MODE ACTIVE - session ruleset applies.' + String.fromCharCode(10, 10) + RULE;
+    if (base.indexOf(entry) !== -1) return undefined;
+    return { systemPrompt: base.concat([entry]) };
+  });
 };
 `;
+}
 
 function ompPluginDir() {
   return path.join(os.homedir(), '.omp', OMP_PLUGIN_DIRNAME);
@@ -885,7 +899,8 @@ function writeOmpPluginPackage(ctx, pluginDir) {
     },
   };
   fs.writeFileSync(path.join(pluginDir, OMP_PACKAGE_FILE), JSON.stringify(pkg, null, 2) + '\n');
-  fs.writeFileSync(path.join(pluginDir, OMP_INDEX_FILE), OMP_EXTENSION_SOURCE);
+  const ruleBody = fs.readFileSync(path.join(repoRoot, 'src', 'rules', 'caveman-activate.md'), 'utf8');
+  fs.writeFileSync(path.join(pluginDir, OMP_INDEX_FILE), ompExtensionSource(ruleBody));
 
   const skillsRoot = path.join(pluginDir, 'skills');
   for (const name of OMP_SKILL_DIRS) {
@@ -913,7 +928,6 @@ function writeOmpPluginPackage(ctx, pluginDir) {
 
   const rulesRoot = path.join(pluginDir, 'rules');
   fs.mkdirSync(rulesRoot, { recursive: true });
-  const ruleBody = fs.readFileSync(path.join(repoRoot, 'src', 'rules', 'caveman-activate.md'), 'utf8');
   fs.writeFileSync(path.join(rulesRoot, OMP_RULE_FILE), ruleBody);
 }
 
