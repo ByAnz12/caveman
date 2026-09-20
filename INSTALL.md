@@ -101,6 +101,26 @@ npx -y github:JuliusBrussee/caveman -- --list   # no clone needed
 
 Each row prints the agent id, profile slug (where applicable), and whether it was auto-detected on your machine. Full agent matrix (with detection rules) is also defined in `bin/install.js` under the `PROVIDERS` array.
 
+### Oh My Pi (OMP)
+
+With `omp` on your PATH, run `node bin/install.js --only omp` from this clone,
+then restart OMP. The native plugin adds seven skills, six commands, Cavecrew
+presets, a CAVEMAN badge, and Caveman instructions on each agent turn. Commands
+such as `/caveman lite` and `stop caveman` instruct the model; the badge indicates
+that the plugin is loaded. Host lifecycle and prompt delivery were checked with
+OMP 18.2.6. This integration does not read Claude Code session statistics.
+
+The installer keeps its package at `~/.omp/caveman-plugin/` and asks OMP to
+register it in OMP's own configured plugin directory. Use the same OMP environment
+when uninstalling. A plugin already named `caveman` at another location is a
+conflict: resolve it through OMP first, even when using `--force`.
+
+Untracked or edited package files are preserved. To replace them intentionally,
+use `--only omp --force`; the ownership journal records a backup for restoration
+on uninstall. Failed registration retains the owned package, journal, and backups
+so OMP cannot be left pointing at deleted files. Fix the reported host error and
+rerun the install, or uninstall. Failed deregistration retains those files too.
+
 ## Manual install (no `curl | bash`)
 
 If you'd rather see exactly what runs:
