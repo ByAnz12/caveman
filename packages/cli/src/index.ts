@@ -5133,7 +5133,7 @@ async function agentShortcut(rest: string[]) {
 // is the one-command compression path. If the proxy can't be reached, a TTY run
 // offers to launch the agent directly (no Caveman, no compression this run) rather
 // than wire it to a dead endpoint; non-TTY runs warn and route through as before.
-async function runWrapped(bin: string, cmdArgs: string[], agent?: AgentProfile, opts: WrapOptions = { mode: "compress", noProxy: false, toon: true, noShrink: false, mcpMode: "auto", noBrowse: false, delegate: false, minimal: false, command: [] }, codexSubscription = false, routeDecision?: AgentRouteOverride | null) {
+async function runWrapped(bin: string, cmdArgs: string[], agent?: AgentProfile, opts: WrapOptions = { mode: "compress", noProxy: false, toon: true, noShrink: false, mcpMode: "auto", noBrowse: false, delegate: false, minimal: false, command: [] }, codexSubscription?: boolean, routeDecision?: AgentRouteOverride | null) {
   const result = await spawnWrapped(bin, cmdArgs, agent, opts, gatewayURL(), codexSubscription, routeDecision);
   // Preflight route bypass is intentionally outside Caveman's lifecycle: no
   // savings read, sync, telemetry, or other post-child mutation.
@@ -5197,9 +5197,23 @@ async function spawnWrapped(
   agent: AgentProfile | undefined,
   opts: WrapOptions,
   gw: string,
-  codexSubscription = false,
+  codexSubscriptionOverride?: boolean,
   routeDecision?: AgentRouteOverride | null,
 ): Promise<{ code: number; proxyStarted: boolean; routeBypass: boolean; sessionStart?: string | undefined; summaryKind?: "observe" | "compress" | undefined }> {
+  // Which Codex route is correct is a fact about ~/.codex/auth.json, not about
+  // the caller: a ChatGPT login must reach the `/chatgpt` mux handler, an api-key
+  // login the attributed `/w/codex/v1`. This used to be a defaulted parameter, so
+  // every caller had to remember to pass it. `wrap codex` did (it resolves the
+  // mode for --pixel anyway); `trial` and the interactive picker did not, and
+  // their `false` built an ephemeral CODEX_HOME pinning the api-key route. Codex
+  // then sent the OAuth token to the platform Responses API, which rejects it
+  // with "Missing scopes: api.responses.write", while the model refresh 404s
+  // because `/w/codex/v1/models` is not in the openai adapter's closed
+  // allowlist (#1092). Resolving it here fixes every caller that forgets; an
+  // explicit override still wins, which is what `wrap` passes.
+  const codexSubscription = agent?.id === "codex"
+    ? codexSubscriptionOverride ?? detectCodexWrapAuthMode() === "subscription"
+    : false;
   const { host, port } = gatewayHostPort(gw);
   const local = wrapMode(gw) === "local";
   let proxyStarted = false;
