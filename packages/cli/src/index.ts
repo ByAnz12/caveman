@@ -9495,6 +9495,12 @@ function wrapBaseUrlEnv(gw: string): NodeJS.ProcessEnv {
 // or on a detached HEAD yields the tags it can and never fails the wrap.
 // The value is fixed for the process: a branch switch mid-session is picked up
 // by the next launch, not this one.
+//
+// Only github.com remotes are tagged: Cloud joins tags['repo'] to the GitHub
+// pull requests it imported, keyed owner/name, so a same-named fork on another
+// host would collide with the wrong repository. Values are printable ASCII
+// without comma or equals — a header value must be a ByteString, and the tag
+// list is comma/equals delimited — anything else drops the tag, never the wrap.
 export function wrapWorkTags(cwd = process.cwd()): string {
   const read = (...args: string[]): string => {
     try {
@@ -9509,18 +9515,35 @@ export function wrapWorkTags(cwd = process.cwd()): string {
   const repo = repoSlugFromRemote(read("remote", "get-url", "origin"));
   if (repo) parts.push(`repo=${repo}`);
   const branch = read("branch", "--show-current");
-  if (branch && branch.length <= 255 && !/[,=\s\p{Cc}]/u.test(branch)) parts.push(`branch=${branch}`);
+  if (branch && branch.length <= 255 && workTagValueSafe(branch)) parts.push(`branch=${branch}`);
   return parts.join(",");
 }
 
-// repoSlugFromRemote reduces a git remote URL to owner/name — the form the
-// gateway accepts for tags['repo'] — or "" when the URL has no such shape.
-// Never the URL itself: a remote can embed a credential.
+// workTagValueSafe: printable ASCII (0x21–0x7E) with no comma or equals.
+export function workTagValueSafe(value: string): boolean {
+  return /^[\x21-\x2B\x2D-\x3C\x3E-\x7E]+$/.test(value);
+}
+
+// repoSlugFromRemote reduces a github.com remote URL to owner/name — the form
+// Cloud's Delivery join and its imported pull requests use — or "" when the
+// remote is on any other host or has no such shape. Never the URL itself: a
+// remote can embed a credential.
 export function repoSlugFromRemote(remote: string): string {
   const cleaned = remote.trim().replace(/\/+$/, "").replace(/\.git$/i, "");
-  const path = /^[a-z][a-z0-9+.-]*:\/\//i.test(cleaned)
-    ? cleaned.replace(/^[a-z][a-z0-9+.-]*:\/\/[^/]+\//i, "")
-    : cleaned.replace(/^[^@:]+@[^:]+:/, "");
+  let host = "";
+  let path = "";
+  const url = /^[a-z][a-z0-9+.-]*:\/\/([^/]+)\/(.*)$/i.exec(cleaned);
+  const scp = /^(?:[^@/:]+@)?([^/:]+):(.*)$/.exec(cleaned);
+  if (url) {
+    host = url[1]!.replace(/^[^@]*@/, "").replace(/:\d+$/, "");
+    path = url[2]!;
+  } else if (scp) {
+    host = scp[1]!;
+    path = scp[2]!;
+  } else {
+    return "";
+  }
+  if (host.toLowerCase() !== "github.com") return "";
   const match = /^([A-Za-z0-9._-]+)\/([A-Za-z0-9._-]+)$/.exec(path);
   return match ? `${match[1]}/${match[2]}` : "";
 }
